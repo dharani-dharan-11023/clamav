@@ -1,0 +1,91 @@
+digraph ClamAV_Scan_Flow {
+    rankdir=LR;
+    node [shape=box, style=rounded];
+
+    // Entry Points
+    subgraph cluster_entry_points {
+        label="Entry Points";
+        style=filled;
+        color=lightgrey;
+        cl_scanfile [label="cl_scanfile\n(file path)"];
+        cl_scandesc [label="cl_scandesc\n(file descriptor)"];
+        cl_scanmap_callback [label="cl_scanmap_callback\n(data stream)"];
+    }
+
+    // Central Orchestrator
+    cli_magic_scan [label="cli_magic_scan\n(scanners.c)\nCentral Orchestrator", shape=ellipse, style=filled, fillcolor=lightblue];
+
+    // File Typing
+    cli_determine_fmap_type [label="cli_determine_fmap_type\n(filetypes.c)\nIdentifies File Type", style=filled, fillcolor=lightyellow];
+
+    // Pattern Matching Engine
+    subgraph cluster_matching_engine {
+        label="Pattern Matching Engine";
+        style=filled;
+        color=lightgoldenrodyellow;
+        cli_scan_fmap [label="cli_scan_fmap\n(matcher.c)"];
+        matcher_run [label="matcher_run\n(matcher.c)\nRuns Algorithms (AC, BM, PCRE, Yara, Hashes)"];
+        cli_scan_fmap -> matcher_run;
+    }
+
+    // Type-Specific Parsers
+    subgraph cluster_type_parsers {
+        label="Type-Specific Parsers (scanners.c)";
+        style=filled;
+        color=lightgreen;
+        cli_scanzip [label="cli_scanzip"];
+        cli_scanole2 [label="cli_scanole2"];
+        cli_scanpe [label="cli_scanpe"];
+        cli_scanelf [label="cli_scanelf"];
+        cli_scanhtml [label="cli_scanhtml"];
+        cli_scanpdf [label="cli_scanpdf"];
+        other_parsers [label="... (other parsers)"];
+    }
+
+    // Generic Scanner for Raw Data / Fallback
+    scanraw [label="scanraw\n(scanners.c)\nGeneric Data Scan, Embedded Object ID", style=filled, fillcolor=lightpink];
+
+    // Results
+    scan_result [label="Scan Result\n(Virus Found / Clean / Error)", shape=ellipse, style=filled, fillcolor=orange];
+
+    // Flow
+    cl_scanfile -> cli_magic_scan;
+    cl_scandesc -> cli_magic_scan;
+    cl_scanmap_callback -> cli_magic_scan;
+
+    cli_magic_scan -> cli_determine_fmap_type [label="1. Determine Type"];
+    cli_determine_fmap_type -> cli_magic_scan [label="Returns Type"];
+
+    cli_magic_scan -> cli_scan_fmap [label="2a. If raw/unknown type or direct match needed"];
+    cli_scan_fmap -> scan_result [label="Pattern Match Result"];
+
+    cli_magic_scan -> cli_scanzip [label="2b. If ZIP Type"];
+    cli_magic_scan -> cli_scanole2 [label="2b. If OLE2 Type"];
+    cli_magic_scan -> cli_scanpe [label="2b. If PE Type"];
+    cli_magic_scan -> cli_scanelf [label="2b. If ELF Type"];
+    cli_magic_scan -> cli_scanhtml [label="2b. If HTML Type"];
+    cli_magic_scan -> cli_scanpdf [label="2b. If PDF Type"];
+    cli_magic_scan -> other_parsers [label="2b. If Other Known Type"];
+    
+    cli_scanzip -> cli_magic_scan [label="Recursive Scan (Embedded File)"];
+    cli_scanole2 -> cli_magic_scan [label="Recursive Scan (Embedded Stream)"];
+    cli_scanpe -> cli_magic_scan [label="Recursive Scan (Embedded Resource)"];
+    // Add other recursive calls from parsers as needed
+
+    cli_magic_scan -> scanraw [label="2c. If no specific parser or post-parser generic scan"];
+    scanraw -> cli_scan_fmap [label="Generic Pattern Matching"];
+    scanraw -> cli_magic_scan [label="Recursive Scan (Identified Embedded Object)"];
+    
+    // Direct path to result from parsers/scanraw if conclusive
+    cli_scanzip -> scan_result;
+    cli_scanole2 -> scan_result;
+    cli_scanpe -> scan_result;
+    cli_scanelf -> scan_result;
+    cli_scanhtml -> scan_result;
+    cli_scanpdf -> scan_result;
+    other_parsers -> scan_result;
+    scanraw -> scan_result;
+    
+    // Final result from cli_magic_scan
+    cli_magic_scan -> scan_result [label="Aggregates & Returns Final Result"];
+}
